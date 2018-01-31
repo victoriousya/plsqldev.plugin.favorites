@@ -674,7 +674,7 @@ end;
 
 procedure TfOrganize.tmr_showTimer(Sender: TObject);
 begin
-    if Self.Visible then begin
+    if False and Self.Visible then begin
         Self.BringToFront;
     end;
 end;

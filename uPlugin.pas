@@ -23,7 +23,7 @@ var // Declaration of PL/SQL Developer callback functions
 //  IDE_GetConnectionInfo: procedure(var Username, Password, Database: PChar); cdecl;
 //  IDE_GetBrowserInfo: procedure(var ObjectType, ObjectOwner, ObjectName: PChar); cdecl;
 //  IDE_GetWindowType: function: Integer; cdecl;
-//  IDE_GetAppHandle: function: Integer; cdecl;
+  IDE_GetAppHandle: function: Integer; cdecl;
 //  IDE_GetWindowHandle: function: Integer; cdecl;
 //  IDE_GetClientHandle: function: Integer; cdecl;
 //  IDE_GetChildHandle: function: Integer; cdecl;
@@ -77,7 +77,7 @@ begin
 //    12 : @IDE_GetConnectionInfo := Addr;
 //    13 : @IDE_GetBrowserInfo := Addr;
 //    14 : @IDE_GetWindowType := Addr;
-//    15 : @IDE_GetAppHandle := Addr;
+    15 : @IDE_GetAppHandle := Addr;
 //    16 : @IDE_GetWindowHandle := Addr;
 //    17 : @IDE_GetClientHandle := Addr;
 //    18 : @IDE_GetChildHandle := Addr;
@@ -124,6 +124,7 @@ end;
 procedure OnCreate; cdecl;
 begin
     g_last_requested_group:= '';
+//    Application.Handle := IDE_GetAppHandle;
     fOrganize:= TfOrganize.Create(Application);
 end;
 
@@ -155,6 +156,7 @@ var
    l_node: TTreeNode;
    res: string;
 begin
+  if not Assigned(fOrganize) then Exit;
 try
     res:= '';
     if Index = 1 then
