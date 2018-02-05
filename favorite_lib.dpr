@@ -13,11 +13,11 @@ library favorite_lib;
 uses
   SysUtils,
   Classes,
-  PlugInIntf in 'PlugInIntf.pas',
   uOrganize in 'uOrganize.pas' {fOrganize},
   uObjects in 'uObjects.pas',
   uPlugin in 'uPlugin.pas',
-  uFileChangeMon in 'uFileChangeMon.pas';
+  uFileChangeMon in 'uFileChangeMon.pas',
+  PlugInIntf in '..\Common\PlugInIntf.pas';
 
 {$R *.res}
 
