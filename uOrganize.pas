@@ -5,7 +5,7 @@ interface
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
   Dialogs, StdCtrls, Buttons, ComCtrls, ExtCtrls, ActnList, ImgList,
-  StdActns;
+  StdActns, Menus;
 const
      C_TEXT_SEPARATOR = '------------------------------';
 type
@@ -47,11 +47,9 @@ type
     dlgOpen_settings: TOpenDialog;
     tmr_show: TTimer;
     chk_use_rel_path: TCheckBox;
-    lbl1: TLabel;
-    edtMenuName: TEdit;
-    lbl2: TLabel;
-    cbb_after_menu: TComboBox;
     btn_save: TSpeedButton;
+    pm1: TPopupMenu;
+    Organize1: TMenuItem;
     procedure FormActivate(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure tvChanging(Sender: TObject; Node: TTreeNode;
@@ -74,6 +72,7 @@ type
     procedure act_exportExecute(Sender: TObject);
     procedure tmr_showTimer(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+    procedure OrganizeFavorites(Sender: TObject);
   private
     { Private declarations }
     ini_file_name: string;
@@ -92,14 +91,14 @@ type
     plugin_refresh: TIDE_RefreshMenusProc;
     ide_refresh   : TIDE_RefreshProc;
     plugin_id     : Integer;
-    menu_root     : string;
-    menu_location : string;
     procedure load_settings(i_file_name: string; i_on_change: Boolean);
     procedure save_settings(i_file_name: string = '');
-    procedure populate_cbb_after_menu(menu_layout: PChar);
     procedure add_plsqdev_script(i_script_file: string );
     procedure trace(i_msg : string);
     procedure RefreshEvent(Sender: TObject; const FileName: string);
+    procedure CreatePopupMenu(var pm: TPopupMenu);
+    procedure AddIDEFile(Sender: TObject);
+    procedure OpenIDEFile(Sender: TObject);
 
   end;
 
@@ -108,13 +107,9 @@ var
 
 implementation
 
-uses StrUtils, uObjects, IniFiles, uFileChangeMon;
+uses StrUtils, uObjects, IniFiles, PlugInIntf;
 
 {$R *.dfm}
-
-var
-  ct : TFileThread;
-
 
 function add_trailing_slash( i_dir  : string): string;
 begin
@@ -214,17 +209,7 @@ begin
     end;
     if tv.Items.Count > 0 then
         tv.Selected:= tv.TopItem;
-    if not i_on_change then begin
-      ct.Terminate;
-      ct:= TFileThread.Create(True);
-      ct.Dir:= ExtractFileDir( Self.settings_fn );
-      ct.OnRefresh:= RefreshEvent;
-      ct.Resume;
-//      if not ct.Suspended then ct.Suspend;
-//      ct.Dir:= ExtractFileDir( Self.settings_fn );
-//      if ct.Suspended then
-//         ct.Resume;
-    end;
+
     is_loading:= False;
 
 end;
@@ -289,23 +274,6 @@ begin
     has_changes:= False;
 end;
 
-procedure TfOrganize.populate_cbb_after_menu(
-    menu_layout : PChar
-);
-var
-    sl: TStringList;
-    i : Integer;
-begin
-    sl:= TStringList.Create;
-    cbb_after_menu.Items.Text:= '';
-    sl.Text:= menu_layout;
-    for i:= 0 to sl.Count - 1 do begin
-      if Copy( sl[i], 1, 1) <> ' ' then
-          cbb_after_menu.Items.Add(sl[i]);
-    end;
-    cbb_after_menu.Text:= Self.menu_location;
-end;
-
 procedure TfOrganize.write_ini_settings;
 var
     ini          : TIniFile;
@@ -314,13 +282,9 @@ begin
     trace('Save plugin settings to '+Self.ini_file_name);
     RoamingFolder:= GetRoamingFolderPath();
     Self.ini_file_name:= RoamingFolder+'favorite_lib.ini';
-    Self.menu_root:= edtMenuName.Text;
-    Self.menu_location:= cbb_after_menu.Text;
     ini:= TIniFile.Create(Self.ini_file_name);
     ini.WriteString('general', 'library', Self.settings_fn);
     ini.WriteBool('general', 'use_relative_path', Self.chk_use_rel_path.Checked);
-    ini.WriteString('general', 'menu_root', Self.menu_root);
-    ini.WriteString('general', 'menu_location', Self.menu_location);
     ini.UpdateFile;
     ini.Free;
 end;
@@ -336,10 +300,6 @@ begin
     ini:= TIniFile.Create(Self.ini_file_name);
     Self.settings_fn:= ini.ReadString('general', 'library', RoamingFolder+'favorite_lib.svfav');
     Self.chk_use_rel_path.Checked:= ini.ReadBool('general', 'use_relative_path', False);
-    Self.menu_root:= ini.ReadString('general', 'menu_root', 'Favorites');
-    Self.menu_location:= ini.ReadString('general', 'menu_location', 'File');
-    Self.edtMenuName.Text:= Self.menu_root;
-    Self.cbb_after_menu.Text:= Self.menu_location;
     ini.UpdateFile;
     ini.Free;
     Self.write_ini_settings;
@@ -352,8 +312,6 @@ begin
     is_loading:= False;
     read_ini_settings;
     tv.Items.Clear;
-    ct:= TFileThread.Create(True);
-    ct.OnRefresh:= RefreshEvent;
 end;
 
 procedure TfOrganize.tvChanging(Sender: TObject; Node: TTreeNode;
@@ -417,19 +375,8 @@ begin
        has_changes:= not is_loading;
        rec_src:= favorites_rec(tv.Selected.Data);
        rec_drp:= favorites_rec(drop_node.Data);
-       if ( rec_drp.item_type = C_ITEM_TYPE_GROUP ) and ( rec_src.item_type <> C_ITEM_TYPE_GROUP ) then begin
+       if ( rec_drp.item_type = C_ITEM_TYPE_GROUP ) and ( rec_src.item_type = C_ITEM_TYPE_SCRIPT ) then begin
            tv.Selected.MoveTo(drop_node, naAddChildFirst);
-       end else if ( rec_drp.item_type = C_ITEM_TYPE_GROUP) and (rec_src.item_type = C_ITEM_TYPE_GROUP) then begin
-           if drop_node.Index < tv.Selected.Index then begin
-               tv.Selected.MoveTo(drop_node, naInsert);
-           end else begin
-               sibling_node:= drop_node.getNextSibling;
-               if Assigned(sibling_node) then begin
-                   tv.Selected.MoveTo(sibling_node, naInsert);
-               end else begin
-                   tv.Selected.MoveTo(drop_node, naAdd);
-               end;
-           end;
        end else begin
            if drop_node.Index < tv.Selected.Index then begin
                tv.Selected.MoveTo(drop_node, naInsert);
@@ -534,25 +481,15 @@ begin
     rec.script_file:= '';
     rec.script_name:= '';
     rec.window_type:= 0;
-    has_changes:= not is_loading;
-    if Assigned(tv.Selected)
-       and ( favorites_rec(tv.Selected.data).item_type = C_ITEM_TYPE_GROUP )
-    then begin
-        new_node:= tv.Items.AddChildObject(tv.Selected, C_TEXT_SEPARATOR, rec);
-    end else if not Assigned(tv.Selected) then begin
-            new_node:= tv.Items.AddObject(nil, C_TEXT_SEPARATOR, rec);
-    end else begin
+    if Assigned(tv.Selected) then begin
         next_sibling:= tv.Selected.getNextSibling;
-        selected_parent:= tv.Selected.Parent;
-        if Assigned(next_sibling) then begin
-            new_node:= tv.Items.InsertObject(next_sibling, C_TEXT_SEPARATOR, rec);
-        end else if Assigned(selected_parent) then begin
-            new_node:= tv.Items.AddChildObject(selected_parent, C_TEXT_SEPARATOR, rec);
-        end else begin
-            new_node:= tv.Items.AddObject(tv.Selected, C_TEXT_SEPARATOR, rec);
-        end;
-    end;
-
+        if Assigned(next_sibling) then
+            new_node:= tv.Items.InsertObject(next_sibling, C_TEXT_SEPARATOR, rec)
+        else
+            new_node:= tv.Items.InsertObject(tv.Selected, C_TEXT_SEPARATOR, rec);
+    end else
+        new_node:= tv.Items.AddObject(nil, C_TEXT_SEPARATOR, rec);
+        
     new_node.ImageIndex:= 2;
     new_node.SelectedIndex:= 2;
     new_node.Selected:= True;
@@ -604,7 +541,6 @@ end;
 procedure TfOrganize.FormDestroy(Sender: TObject);
 begin
     Cleanup_tree;
-    ct.Terminate;
     Self.trace('Plugin stopped');
 end;
 
@@ -733,6 +669,102 @@ begin
    end else
        CanClose:= True;
 
+end;
+
+procedure TfOrganize.CreatePopupMenu(var pm: TPopupMenu);
+var
+    mi: TMenuItem;
+    mi_grp: TMenuItem;
+    l_node: TTreeNode;
+    g_last_requested_group: String;
+    i: Integer;
+begin
+    pm.Items.Clear;
+    mi:= TMenuItem.Create(Application);
+    mi.OnClick:= AddIDEFile;
+    mi.Caption:= 'Add Current';
+    pm.Items.Add(mi);
+
+    mi:= TMenuItem.Create(Application);
+    mi.OnClick:= OrganizeFavorites;
+    mi.Caption:= 'Organize...';
+    pm.Items.Add(mi);
+    pm.Images:= il_tv;
+
+    mi:= TMenuItem.Create(Application);
+    mi.Caption:= '-';
+    pm.Items.Add(mi);
+
+    load_settings('', False);
+
+    for i:= 0 to tv.Items.Count - 1 do begin
+        l_node:= tv.Items[i];
+        mi:= TMenuItem.Create(Application);
+        if favorites_rec( l_node.Data ).item_type = C_ITEM_TYPE_GROUP then begin
+            mi.Caption:= favorites_rec( l_node.Data ).group_desc;
+            mi_grp:= mi;
+            mi.ImageIndex:= 0;
+            pm.Items.Add(mi);
+        end else begin
+            if favorites_rec( l_node.Data ).item_type = C_ITEM_TYPE_SCRIPT then begin
+                mi.Caption:= favorites_rec( l_node.Data ).script_name;
+                mi.OnClick:= OpenIDEFile;
+                mi.ImageIndex:= 1;
+                mi.Tag:= i;
+            end else if favorites_rec( l_node.Data ).item_type = C_ITEM_TYPE_SEPARATOR then begin
+                mi.Caption:= '-';
+            end;
+
+            if not Assigned(l_node.Parent) then
+                mi_grp:= nil;
+
+            if Assigned(mi_grp) then
+                mi_grp.Add(mi)
+            else
+                pm.Items.Add(mi);
+
+        end;
+
+    end;
+end;
+
+procedure TfOrganize.OrganizeFavorites(Sender: TObject);
+begin
+    load_settings('', False);
+    ShowModal;
+end;
+
+procedure TfOrganize.AddIDEFile(Sender: TObject);
+var
+    ide_file_name: string;
+    mrDummy : TModalResult;
+begin
+    ide_file_name:= string( IDE_Filename());
+    if ide_file_name <> '' then
+        add_plsqdev_script(ide_file_name)
+    else
+        mrDummy:= MessageDlg( 'Save script first'
+                    , mtError, [mbOk], 0);
+end;
+
+procedure TfOrganize.OpenIDEFile(Sender: TObject);
+var
+    l_node: TTreeNode;
+begin
+    l_node:= tv.Items[TMenuItem(Sender).Tag];
+    if favorites_rec(l_node.Data).item_type = C_ITEM_TYPE_SCRIPT then
+        if favorites_rec(l_node.Data).script_file = '' then begin
+            favorites_rec(l_node.Data).Free;
+            l_node.Delete;
+            fOrganize.save_settings;
+        end else if not IDE_OpenFile(0, PChar(favorites_rec(l_node.Data).script_file)) then begin
+            if MessageDlg( 'File not found. Remove? [' + favorites_rec(l_node.Data).script_file+']'
+                 , mtError, [mbYes, mbNo], 0) = mrYes then begin
+                favorites_rec(l_node.Data).Free;
+                l_node.Delete;
+                fOrganize.save_settings;
+            end;
+         end;
 end;
 
 end.
